@@ -69,4 +69,5 @@ This software is available under the MIT license. Please refer to the LICENSE fi
 ## Citation
 
 If you use this pipeline in your research, please cite the CNEr paper:
-[CNEr]: https://doi.org/10.1371/journal.pcbi.1006940
+
+https://doi.org/10.1371/journal.pcbi.1006940
