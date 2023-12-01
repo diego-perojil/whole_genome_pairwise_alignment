@@ -15,7 +15,7 @@ This pipeline is a comprehensive tool for whole genome pairwise alignment using 
 
 To install the pipeline, clone the repository from GitHub:
 
-    git clone [URL of the GitHub repository]
+    git clone https://github.com/da-bar/whole_genome_pairwise_alignment.git
 
 ## Usage
 
