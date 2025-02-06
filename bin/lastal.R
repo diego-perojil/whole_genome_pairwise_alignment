@@ -36,4 +36,4 @@ lastal(db = reference_root, queryFn = query_fa,
 
 # maf to psl conversion
 output_psl <- paste0(reference_root, "_", query_root, ".psl")
-system2(command = "maf-convert", args = c("psl", output_maf, ">", output_psl))
+system2(command = "maf-convert", args = c("psl", output_maf), output_psl)
