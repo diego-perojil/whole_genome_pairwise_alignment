@@ -15,24 +15,23 @@ process LASTAL {
         """
 }
 
+// Modified process to convert FASTA to 2bit that writes a status file
 process FASTATOTWOBIT {
     publishDir "${params.output}", mode: 'copy'
     
-    // Define input fasta file
     input:
-        tuple val(id), path(input_fasta)
-
-    // Define the output files
-    // Expecting a single psl and maf file as outputs
+        tuple val(id), path(input_fa)
+    
     output:
-        tuple val(id), path("${input_fasta.baseName}.2bit")
-
+        // Emit the 2bit file and a status file (.status) that holds "OK" or "FAILED"
+        tuple val(id), path("${input_fa.baseName}.2bit"), path("${input_fa.baseName}.status")
+    
     script:
-        """
-        faToTwoBit ${input_fasta} ${input_fasta.baseName}.2bit
-        """
+    """
+    # Try to run faToTwoBit and write status based on exit code.
+    faToTwoBit ${input_fa} ${input_fa.baseName}.2bit && echo "OK" > ${input_fa.baseName}.status || echo "FAILED" > ${input_fa.baseName}.status
+    """
 }
-
 process CHAIN {
     publishDir "${params.output}", mode: 'copy'
 
