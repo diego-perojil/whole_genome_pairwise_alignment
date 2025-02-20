@@ -164,10 +164,29 @@ workflow {
     // Run the debug process to override status if needed
     DEBUG2BIT_STATUS(twobit_files_ch).set { debug_twobit_ch }
 
-    // Extract the twoBit files (dropping status) for further processing
+    // Validate the status files and exit if both are FAILED
     debug_twobit_ch
         .buffer(size: 2)
+        .map { statusList ->
+            // Find the reference and query tuples
+            def refTuple = statusList.find { it[0] == "r" }
+            def qryTuple = statusList.find { it[0] == "q" }
+            // Read the contents of their status files
+            def refStatus = refTuple[2].text.trim()
+            def qryStatus = qryTuple[2].text.trim()
+            if( refStatus == "FAILED" && qryStatus == "FAILED" ) {
+                error "Error: this pipeline currently does not support alignment of two large genomes. Try using a smaller reference or query"
+            }
+            return statusList
+        }
+        .set { validated_twobit_ch }
+
+    // For further processing, extract just the identifier and 2bit file if needed.
+    validated_twobit_ch
+        .flatMap { it }  // flatten the list so each tuple is emitted separately
+        .map { tuple( it[0], it[1], it[2] ) } // retain the full tuple (id, twoBit, status) if later branching is needed
         .set { twobit_tuple_ch }
+
 
     // Run CHAIN and save the output
     CHAIN(ch_psl, twobit_tuple_ch)
