@@ -32,6 +32,26 @@ process FASTATOTWOBIT {
     faToTwoBit ${input_fa} ${input_fa.baseName}.2bit && echo "OK" > ${input_fa.baseName}.status || echo "FAILED" > ${input_fa.baseName}.status
     """
 }
+
+process DEBUG2BIT_STATUS {
+    publishDir "${params.output}", mode: 'copy'
+    
+    input:
+        tuple val(id), path(twoBit), path(statusFile)
+    
+    output:
+        tuple val(id), path(twoBit), path(statusFile)
+    
+    script:
+    """
+    # Determine if this file should be forced to FAILED
+    if [ "${params.debug2bit}" = "BOTH" ] || ([ "${params.debug2bit}" = "REF" ] && [ "${id}" = "r" ]) || ([ "${params.debug2bit}" = "QUERY" ] && [ "${id}" = "q" ]); then
+        echo "FAILED" > ${statusFile}
+    fi
+    # Just output the file as-is (modified or not)
+    """
+}
+
 process CHAIN {
     publishDir "${params.output}", mode: 'copy'
 
@@ -140,6 +160,15 @@ workflow {
         .buffer(size: 2)
         .map { it -> tuple(it[0], it[1]) }
         .set { twobit_tuple_ch }
+
+    // Run the debug process to override status if needed
+    DEBUG2BIT_STATUS(twobit_files_ch).set { debug_twobit_ch }
+
+    // Extract the twoBit files (dropping status) for further processing
+    debug_twobit_ch
+        .buffer(size: 2)
+        .set { twobit_tuple_ch }
+
     // Run CHAIN and save the output
     CHAIN(ch_psl, twobit_tuple_ch)
         .set { chain_ch }
