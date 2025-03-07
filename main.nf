@@ -1,123 +1,112 @@
-
-
-// Define the process
-process LASTAL {
-    publishDir "${params.output}", mode: 'copy'
+process SPLITSEQ {
+    maxForks 32
+    // This publishes outputs to a subdirectory named splitseq
+    publishDir "${params.output}/splitseq/", mode: 'copy'
     
-    // Define the output files
-    // Expecting a single psl and maf file as outputs
+    // Define input fasta file as a tuple (id, file)
+    input:
+        tuple val(id), path(input_fasta)
+
+    // Define the output files as a tuple (id, generated .fa files)
+    output:
+        tuple val(id), path("*_split")
+
+    script:
+        def split_out_dir = id == "r" ? "reference_split" : "query_split"
+        """
+        mkdir -p ${split_out_dir}
+        faSplit byname ${input_fasta} ./${split_out_dir}/
+        """
+}
+
+process FASTATOTWOBIT {
+    maxForks 32
+    // This publishes outputs to a subdirectory named twobit
+    publishDir "${params.output}/twobit/", mode: 'copy'
+
+    // Define input fasta file as a tuple (id, generated .fa files)
+    input:
+        tuple val(id), path(split_fasta)
+
+    // Define the output files as a tuple (id, generated .2bit files)
+    output:
+        tuple val(id), path("*.2bit")
+
+    script:
+        """
+        faToTwoBit ${split_fasta} ${split_fasta.baseName}.2bit
+        """
+}
+
+process LASTAL {
+    maxForks 32
+    publishDir "${params.output}/lastal/", mode: 'copy'
+
+    // Each job gets one reference and one query file
+    input:
+        tuple val(ref_id), path(ref_file), val(query_id), path(query_file)
+
     output:
         path("*.maf", arity: '1')
         path("*.psl", arity: '1')
 
     script:
         """
-        lastal.R ${params.reference} ${params.query} ${params.output}
-        """
-}
-
-process FASTATOTWOBIT {
-    publishDir "${params.output}", mode: 'copy'
-    
-    // Define input fasta file
-    input:
-        tuple val(id), path(input_fasta)
-
-    // Define the output files
-    // Expecting a single psl and maf file as outputs
-    output:
-        tuple val(id), path("${input_fasta.baseName}.2bit")
-
-    script:
-        """
-        faToTwoBit ${input_fasta} ${input_fasta.baseName}.2bit
+        lastal.R ${ref_file} ${query_file} ${params.output}/lastal/
         """
 }
 
 process CHAIN {
-    publishDir "${params.output}", mode: 'copy'
+    maxForks 32
+    publishDir "${params.output}/all_chain/", mode: 'copy'
 
     input:
-        path psl
-        tuple val(id1_file_tuple), val(id2_file_tuple)
+        tuple val(basename), path(psl_file), path(ref2bit_file), path(query2bit_file)
 
     output:
-        path "*.all.chain"
+        tuple val(basename), path(ref2bit_file), path(query2bit_file), path("*.all.chain")
 
     script:
-    def (id1, file1) = id1_file_tuple
-    def (id2, file2) = id2_file_tuple
-
-    if (id1 == "r" && id2 == "q") {
-        assemblyTarget = file1
-        assemblyQuery = file2
-    } else {
-        assemblyTarget = file2
-        assemblyQuery = file1
-    }
 
     """
-    chaining.R ${psl} ${assemblyTarget} ${assemblyQuery}
+    chaining.R ${psl_file} ${ref2bit_file} ${query2bit_file}
     """
 }
 
 process NETTING {
-    publishDir "${params.output}", mode: 'copy'
+    publishDir "${params.output}/net/", mode: 'copy'
 
     input:
-        path chain
-        tuple val(id1_file_tuple), val(id2_file_tuple)
+        tuple val(basename), path(ref2bit_file), path(query2bit_file), path(chain_file)
+        
 
     output:
-        path "*.all.pre.chain"
-        path "*.noClass.net"
+        tuple val(basename), path(ref2bit_file), path(query2bit_file), path("*.all.pre.chain"), path("*.noClass.net")
+
 
     script:
-    def (id1, file1) = id1_file_tuple
-    def (id2, file2) = id2_file_tuple
-
-    if (id1 == "r" && id2 == "q") {
-        assemblyTarget = file1
-        assemblyQuery = file2
-    } else {
-        assemblyTarget = file2
-        assemblyQuery = file1
-    }
 
     """
-    netting.R ${chain} ${assemblyTarget} ${assemblyQuery}
+    netting.R ${chain_file} ${ref2bit_file} ${query2bit_file}
     """
 }
 
 process AXTNET {
-    publishDir "${params.output}", mode: 'copy'
+    publishDir "${params.output}/axt/", mode: 'copy'
 
     input:
-        path net_syntenic
-        path pre_chain
-        tuple val(id1_file_tuple), val(id2_file_tuple)
+        tuple val(basename), path(ref2bit_file), path(query2bit_file), path(pre_chain_file), path(net_syntenic_file)
 
     output:
         path "*.net.axt"
 
     script:
-    def (id1, file1) = id1_file_tuple
-    def (id2, file2) = id2_file_tuple
-
-    if (id1 == "r" && id2 == "q") {
-        assemblyTarget = file1
-        assemblyQuery = file2
-    } else {
-        assemblyTarget = file2
-        assemblyQuery = file1
-    }
 
     """
-    axtNet.R ${net_syntenic} ${pre_chain} ${assemblyTarget} ${assemblyQuery}
+    axtNet.R ${net_syntenic_file} ${pre_chain_file} ${ref2bit_file} ${query2bit_file}
     """
 }
 
-// Run the pipeline
 workflow {
 
     // Check if the output directory exists; create it if it doesn't
@@ -125,32 +114,84 @@ workflow {
         file(params.output).mkdirs()
     }
 
-    // Run LASTAL and save the output
-    (ch_maf, ch_psl) = LASTAL() 
-
     // make the reference and query fasta files as channels
     Channel
         .of(tuple("r", params.reference), 
-            tuple("q", params.query))
+           tuple("q", params.query))
         .set { fasta_files_ch }
 
+    // Run SPLITSEQ and save the output
+    SPLITSEQ(fasta_files_ch).set { splitseq_dir_ch }
+
+    // Modify splitseq_dir_ch so it contains files instead of directories
+    splitseq_dir_ch
+        .flatMap { id, dir -> 
+            // List all files within the directory.
+            def files = file(dir).listFiles()
+            // For each file, create a new tuple [id, file]
+            files.collect { file -> [ id, file ] }
+        }
+        
+        .set { splitseq_ch }
+
+    // Filter out reference and query files from your splitseq_ch channel
+    ref_ch   = splitseq_ch.filter { it[0] == 'r' }  
+    query_ch = splitseq_ch.filter { it[0] == 'q' }
+
+    // Combine reference and query channels as all vs all
+    ref_ch.combine(query_ch).set { combined_fa_ch }
+
+    // Run LASTAL and save the output
+    (maf_ch, psl_ch) = LASTAL(combined_fa_ch)
     
     // Run FASTATOTWOBIT and save the output
-    FASTATOTWOBIT(fasta_files_ch).set { twobit_files_ch }
+    FASTATOTWOBIT(splitseq_ch).set { twobit_files_ch }
 
-    twobit_files_ch
-        .buffer(size: 2)
-        .map { it -> tuple(it[0], it[1]) }
-        .set { twobit_tuple_ch }
-    // Run CHAIN and save the output
-    CHAIN(ch_psl, twobit_tuple_ch)
-        .set { chain_ch }
+    ref2b_ch = twobit_files_ch.filter { it[0] == 'r' }
+    query2b_ch = twobit_files_ch.filter { it[0] == 'q' }
 
-    // Run NETTING and save the output
-    (pre_chain_ch, net_ch) = NETTING(chain_ch, twobit_tuple_ch)
+    ref2b_ch.combine(query2b_ch).set { combined_2b_ch }
 
-    // Run AXTNET and save the output
-    axt_net_ch = AXTNET(net_ch, pre_chain_ch, twobit_tuple_ch)
-        
+    psl_ch
+        .map { file ->
+            // Get the file name without the '.psl' extension
+            def baseName = file.getName().replaceFirst(/\.psl$/, '')
+            // Split the file name by the underscore to separate the two parts
+            def parts = baseName.split('_')
+            // First part is the ref_basename, second part is the query_basename
+            def ref_basename = parts[0]
+            def q_basename   = parts[1]
+            // Return a tuple with the structure: [[ref_basename, q_basename], file_path]
+            return [[ref_basename, q_basename], file]
+        }
+        .set { psl_sync_ch }
+
+    combined_2b_ch.map { r, ref_file, q, query_file ->
+        // Get the base name of each file (removing the .2bit extension)
+        def ref_basename = ref_file.getName().replaceFirst(/\.2bit$/, '')
+        def query_basename = query_file.getName().replaceFirst(/\.2bit$/, '')
+        // Return a tuple with the requested structure:
+        // [[reference_file_basename, query_file_basename], path/to/reference.2bit, path/to/query.2bit]
+        return [[ref_basename, query_basename], ref_file, query_file]
+    }
+    .set { combined_2b_sync_ch }
+
+    psl_2b_ch = psl_sync_ch.join(combined_2b_sync_ch)
+    .map { t ->
+        // 't' is a list: [key, psl_file, ref_file, query_file]
+        def (key, psl_file, ref_file, query_file) = t
+        // Return the merged tuple with the desired structure:
+        [ key, psl_file, ref_file, query_file ]
+    }
+    
+    CHAIN(psl_2b_ch).set { chain_ch }
+
+    NETTING(chain_ch).set { netting_ch }
+
+    AXTNET(netting_ch).set { axt_net_ch }
+
     axt_net_ch.view()
+
+    
+    
 }
