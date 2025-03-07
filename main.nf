@@ -123,6 +123,68 @@ process AXTNET {
     """
 }
 
+process BIG2BIT {
+    errorStrategy 'ignore'
+    publishDir "${params.output}/merged/", mode: 'copy'
+
+    input:
+        tuple val(id), path(filtered_fasta)
+
+    output:
+        path "*.2bit"
+    
+    script:
+
+    """
+    faToTwoBit "${filtered_fasta}" "${filtered_fasta.baseName}.2bit"
+    """
+}
+
+process AXTMERGE {
+    publishDir "${params.output}/merged/", mode: 'copy'
+
+    input:
+        path axt_files
+
+    output:
+        path "*.axt"
+
+    script:
+    """
+    # Extract the base names from the reference and query paths.
+    refbase=\$(basename "${params.reference}")
+    refbase=\${refbase%.fa}
+    querybase=\$(basename "${params.query}")
+    querybase=\${querybase%.fa}
+    
+    # Get the first file from the input list.
+    first_file=${axt_files[0]}
+    
+    # 1. Extract the global header (lines starting with "##") from the first file.
+    grep '^##' "\$first_file" > "\${refbase}_\${querybase}.merged.net.axt"
+    
+    # 2. Remove header lines from all input files and write to a temporary file.
+    grep -h -v '^##' ${axt_files} > all_blocks.txt
+    
+    # 3. Process the alignment blocks (assumes each block is exactly 3 lines).
+    awk '{
+      header = \$0;
+      getline seq1;
+      getline seq2;
+      split(header, fields, " ");
+      ref = fields[2];
+      start = fields[3];
+      printf "%s\t%010d\t%s\n", ref, start, header "\n" seq1 "\n" seq2 "\n";
+    }' all_blocks.txt | sort -k1,1 -k2,2n | cut -f3- > sorted_blocks.txt
+    
+    # 4. Append the sorted blocks to the merged file.
+    cat sorted_blocks.txt >> "\${refbase}_\${querybase}.merged.net.axt"
+    
+    # Clean up temporary files.
+    rm all_blocks.txt sorted_blocks.txt
+    """
+}
+
 workflow {
 
     // Check if the output directory exists; create it if it doesn't
@@ -224,6 +286,12 @@ workflow {
     // Run AXTNET and save the output
     AXTNET(netting_ch).set { axt_net_ch }
 
-    //process merge split files below
+    // Run BIG2BIT and save the output
+    BIG2BIT(filtered_fa_ch)
 
+    // Collect all axt files to merge later with AXTMERGE
+    axt_net_ch.collect().set { all_axt_ch }
+
+    // Run AXTMERGE and save the output
+    AXTMERGE(all_axt_ch)
 }
