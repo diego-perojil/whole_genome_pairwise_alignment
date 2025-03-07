@@ -52,7 +52,7 @@ process LASTAL {
 
     script:
         """
-        lastal.R ${ref_file} ${query_file} ${params.output}/lastal/
+        lastal.R ${ref_file} ${query_file} ${params.output}/lastal/ ${params.distance}
         """
 }
 
@@ -69,7 +69,7 @@ process CHAIN {
     script:
 
     """
-    chaining.R ${psl_file} ${ref2bit_file} ${query2bit_file}
+    chaining.R ${psl_file} ${ref2bit_file} ${query2bit_file} ${params.distance}
     """
 }
 
@@ -120,6 +120,11 @@ workflow {
            tuple("q", params.query))
         .set { fasta_files_ch }
 
+    // make the distance parameter as channel
+    Channel
+        .of(params.distance)
+        .set { distance_ch }
+    
     // Run SPLITSEQ and save the output
     SPLITSEQ(fasta_files_ch).set { splitseq_dir_ch }
 
@@ -147,11 +152,16 @@ workflow {
     // Run FASTATOTWOBIT and save the output
     FASTATOTWOBIT(splitseq_ch).set { twobit_files_ch }
 
+
+    // Separate twobit_files_ch into reference and query channels
     ref2b_ch = twobit_files_ch.filter { it[0] == 'r' }
     query2b_ch = twobit_files_ch.filter { it[0] == 'q' }
 
+    // Combine reference and query channels as a cartesian product using .combine
     ref2b_ch.combine(query2b_ch).set { combined_2b_ch }
 
+    // Edit psl channel to follow structure [[ref_basename, q_basename], path/to/file.psl]
+    // This is to join it with the 2bit channel (which is also edited below).
     psl_ch
         .map { file ->
             // Get the file name without the '.psl' extension
@@ -166,6 +176,7 @@ workflow {
         }
         .set { psl_sync_ch }
 
+    // Edit 2bit channel to follow structure [[ref_basename, q_basename], path/to/ref.2bit, path/to/query.2bit]
     combined_2b_ch.map { r, ref_file, q, query_file ->
         // Get the base name of each file (removing the .2bit extension)
         def ref_basename = ref_file.getName().replaceFirst(/\.2bit$/, '')
@@ -176,6 +187,8 @@ workflow {
     }
     .set { combined_2b_sync_ch }
 
+    // combine both edited channels psl_sync_ch and combined_2b_sync_ch into channel psl_2b_ch with structure
+    // [ [ref_basename, query_basename] , path/to/file.psl , path/to/ref.2bit , path/to/query.2bit ]
     psl_2b_ch = psl_sync_ch.join(combined_2b_sync_ch)
     .map { t ->
         // 't' is a list: [key, psl_file, ref_file, query_file]
@@ -184,14 +197,15 @@ workflow {
         [ key, psl_file, ref_file, query_file ]
     }
     
+    // Run CHAIN and save the output
     CHAIN(psl_2b_ch).set { chain_ch }
 
+    // Run NETTING and save the output
     NETTING(chain_ch).set { netting_ch }
 
+    // Run AXTNET and save the output
     AXTNET(netting_ch).set { axt_net_ch }
 
-    axt_net_ch.view()
+    //process merge split files below
 
-    
-    
 }
