@@ -1,3 +1,19 @@
+process FILTERFA {
+    publishDir "${params.output}/filtered_genomes/", mode: 'copy'
+
+    input:
+        tuple val(id), path(input_fasta)
+    
+    output:
+        tuple val(id), path("*.fa")
+
+    script:
+        def regex_to_use = id == "r" ? "${params.ref_regex}" : "${params.query_regex}"
+        """
+        awk -v pattern="${regex_to_use}" '/^>/{flag = (\$0 ~ pattern)} flag' "${input_fasta}" > "${input_fasta.baseName}_filtered.fa"
+        """
+}
+
 process SPLITSEQ {
     maxForks 32
     // This publishes outputs to a subdirectory named splitseq
@@ -125,8 +141,10 @@ workflow {
         .of(params.distance)
         .set { distance_ch }
     
+    // Run FILTERFA and save the output
+    FILTERFA(fasta_files_ch).set { filtered_fa_ch }
     // Run SPLITSEQ and save the output
-    SPLITSEQ(fasta_files_ch).set { splitseq_dir_ch }
+    SPLITSEQ(filtered_fa_ch).set { splitseq_dir_ch }
 
     // Modify splitseq_dir_ch so it contains files instead of directories
     splitseq_dir_ch
