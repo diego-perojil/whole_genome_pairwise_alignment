@@ -15,7 +15,7 @@ process FILTERFA {
 }
 
 process SPLITSEQ {
-    maxForks 32
+    maxForks 16
     // This publishes outputs to a subdirectory named splitseq
     publishDir "${params.output}/splitseq/", mode: 'copy'
     
@@ -36,7 +36,7 @@ process SPLITSEQ {
 }
 
 process FASTATOTWOBIT {
-    maxForks 32
+    maxForks 16
     // This publishes outputs to a subdirectory named twobit
     publishDir "${params.output}/twobit/", mode: 'copy'
 
@@ -55,7 +55,7 @@ process FASTATOTWOBIT {
 }
 
 process LASTAL {
-    maxForks 32
+    maxForks 16
     publishDir "${params.output}/lastal/", mode: 'copy'
 
     // Each job gets one reference and one query file
@@ -73,7 +73,7 @@ process LASTAL {
 }
 
 process CHAIN {
-    maxForks 32
+    maxForks 16
     publishDir "${params.output}/all_chain/", mode: 'copy'
 
     input:
@@ -90,6 +90,7 @@ process CHAIN {
 }
 
 process NETTING {
+    maxForks 16
     publishDir "${params.output}/net/", mode: 'copy'
 
     input:
@@ -108,6 +109,7 @@ process NETTING {
 }
 
 process AXTNET {
+    maxForks 16
     publishDir "${params.output}/axt/", mode: 'copy'
 
     input:
@@ -119,7 +121,7 @@ process AXTNET {
     script:
 
     """
-    axtNet.R ${net_syntenic_file} ${pre_chain_file} ${ref2bit_file} ${query2bit_file}
+    axtNet.R ${net_syntenic_file} ${pre_chain_file} ${ref2bit_file} ${query2bit_file} 
     """
 }
 
@@ -141,49 +143,24 @@ process BIG2BIT {
 }
 
 process AXTMERGE {
+    maxForks 16
     publishDir "${params.output}/merged/", mode: 'copy'
 
     input:
-        path axt_files
+        path(axt_files)
+        tuple val(reference_id), path(ref_filtered_fa_file), val(query_id), path(query_filtered_fa_file)
 
     output:
-        path "*.axt"
+        path "*.merged.net.axt"
 
     script:
+
     """
-    # Extract the base names from the reference and query paths.
-    refbase=\$(basename "${params.reference}")
-    refbase=\${refbase%.fa}
-    querybase=\$(basename "${params.query}")
-    querybase=\${querybase%.fa}
-    
-    # Get the first file from the input list.
-    first_file=${axt_files[0]}
-    
-    # 1. Extract the global header (lines starting with "##") from the first file.
-    grep '^##' "\$first_file" > "\${refbase}_\${querybase}.merged.net.axt"
-    
-    # 2. Remove header lines from all input files and write to a temporary file.
-    grep -h -v '^##' ${axt_files} > all_blocks.txt
-    
-    # 3. Process the alignment blocks (assumes each block is exactly 3 lines).
-    awk '{
-      header = \$0;
-      getline seq1;
-      getline seq2;
-      split(header, fields, " ");
-      ref = fields[2];
-      start = fields[3];
-      printf "%s\t%010d\t%s\n", ref, start, header "\n" seq1 "\n" seq2 "\n";
-    }' all_blocks.txt | sort -k1,1 -k2,2n | cut -f3- > sorted_blocks.txt
-    
-    # 4. Append the sorted blocks to the merged file.
-    cat sorted_blocks.txt >> "\${refbase}_\${querybase}.merged.net.axt"
-    
-    # Clean up temporary files.
-    rm all_blocks.txt sorted_blocks.txt
+    axtMerge . "${ref_filtered_fa_file.baseName}.${query_filtered_fa_file.baseName}.merged.net.axt"
     """
 }
+
+
 
 workflow {
 
@@ -205,8 +182,16 @@ workflow {
     
     // Run FILTERFA and save the output
     FILTERFA(fasta_files_ch).set { filtered_fa_ch }
+
+    // Collect files in a channel to have both reference and query in channel
+    // For process AXTMERGE at the end of the workflow
+    filtered_fa_ch.collect().set { filtered_fa_files_ch }
+    //filtered_fa_files_ch.view()
+
     // Run SPLITSEQ and save the output
     SPLITSEQ(filtered_fa_ch).set { splitseq_dir_ch }
+
+    //splitseq_dir_ch.view()
 
     // Modify splitseq_dir_ch so it contains files instead of directories
     splitseq_dir_ch
@@ -219,12 +204,17 @@ workflow {
         
         .set { splitseq_ch }
 
+    //splitseq_ch.view()
+
     // Filter out reference and query files from your splitseq_ch channel
     ref_ch   = splitseq_ch.filter { it[0] == 'r' }  
     query_ch = splitseq_ch.filter { it[0] == 'q' }
 
+    //ref_ch.view()
+    //query_ch.view()
     // Combine reference and query channels as all vs all
     ref_ch.combine(query_ch).set { combined_fa_ch }
+    //combined_fa_ch.view()
 
     // Run LASTAL and save the output
     (maf_ch, psl_ch) = LASTAL(combined_fa_ch)
@@ -289,9 +279,9 @@ workflow {
     // Run BIG2BIT and save the output
     BIG2BIT(filtered_fa_ch)
 
-    // Collect all axt files to merge later with AXTMERGE
+    // Aggregate all axt file paths into a single directory named 'all_axt_files'
     axt_net_ch.collect().set { all_axt_ch }
-
+    all_axt_ch.view()
     // Run AXTMERGE and save the output
-    AXTMERGE(all_axt_ch)
+    AXTMERGE(all_axt_ch, filtered_fa_files_ch)
 }

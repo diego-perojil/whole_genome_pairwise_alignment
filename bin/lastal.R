@@ -22,7 +22,7 @@ query_root <- tools::file_path_sans_ext(basename(query_fa))
 lastdb_path <- reference_root
 
 # Build the lastdb index
-system2(command = "lastdb", args= c("-c",  lastdb_path, assembly_fa))
+system2(command = "lastdb", args= c("-c","-P 4",  lastdb_path, assembly_fa))
 
 # Run last aligner
 output_maf <- paste0(reference_root, "_", query_root, ".maf")
