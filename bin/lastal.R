@@ -31,5 +31,5 @@ lastal(db = reference_root, queryFn = query_fa,
        distance = dist_val, binary = "lastal", mc.cores = 1L)
 
 # maf to psl conversion
-output_psl <- paste0(reference_root, "_", query_root, ".psl")
+output_psl <- paste0(reference_root, "_vs_", query_root, ".psl")
 system2(command = "maf-convert", args = c("psl", output_maf), output_psl)
