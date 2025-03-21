@@ -1,12 +1,11 @@
-
 process FILTERFA {
-    publishDir "${params.output}/${nam}/filtered_genomes/", mode: 'copy'
+    publishDir "${params.output}/shared/${input_fasta.baseName}/filtered", mode: 'copy'
 
     input:
-        tuple val(nam), val(id), path(input_fasta), val(regex_to_use), val(distance)
+        tuple path(input_fasta), val(regex_to_use)
     
     output:
-        tuple val(nam), val(id), path("*.fa"), val(distance)
+        tuple path(input_fasta), path("*filtered.fa")
 
     script:
         """
@@ -19,44 +18,34 @@ process FILTERFA {
 }
 
 process SPLITSEQ {
-    maxForks 16
-    // This publishes outputs to a subdirectory named splitseq
-    publishDir "${params.output}/${nam}/splitseq/", mode: 'copy'
-    
-    // Define input fasta file as a tuple (id, file)
-    input:
-        tuple val(nam), val(id), path(input_fasta), val(distance)
+    publishDir "${params.output}/shared/${input_fasta.baseName}", mode: 'copy'
 
-    // Define the output files as a tuple (id, generated .fa files)
+    input:
+        tuple path(input_fasta), path(filtered_fasta)
+
     output:
-        tuple val(nam), val(id), path("*_split"), val(distance)
+        tuple path(input_fasta), path("*split")
 
     script:
-        def split_out_dir = id == "r" ? "reference_split" : "query_split"
         """
-        mkdir -p ${split_out_dir}
-        faSplit byname ${input_fasta} ./${split_out_dir}/
+        mkdir -p split
+        faSplit byname ${filtered_fasta} ./split/
         """
     stub:
-        def split_out_dir = id == "r" ? "reference_split" : "query_split"
         """
-        mkdir -p ${split_out_dir}
-        touch ${split_out_dir}/${input_fasta.baseName}-f1.fa ${split_out_dir}/${input_fasta.baseName}-f2.fa ${split_out_dir}/${input_fasta.baseName}-f3.fa ${split_out_dir}/${input_fasta.baseName}-f4.fa
+        mkdir -p split
+        touch ./split/${filtered_fasta.baseName}-f1.fa ./split/${filtered_fasta.baseName}-f2.fa ./split/${filtered_fasta.baseName}-f3.fa ./split/${filtered_fasta.baseName}-f4.fa
         """
 }
 
 process FASTATOTWOBIT {
-    maxForks 16
-    // This publishes outputs to a subdirectory named twobit
-    publishDir "${params.output}/${nam}/twobit/${id}", mode: 'copy'
+    publishDir "${params.output}/shared/${input_fasta.baseName}/2bit/split", mode: 'copy'
 
-    // Define input fasta file as a tuple (id, generated .fa files)
     input:
-        tuple val(nam), val(id), path(split_fasta), val(distance)
+        tuple path(input_fasta), path(split_dir), path(split_fasta)
 
-    // Define the output files as a tuple (id, generated .2bit files)
     output:
-        tuple val(nam), val(id), path("*.2bit"), val(distance)
+        tuple path(input_fasta), path(split_fasta), path("*.2bit")
 
     script:
         """
@@ -69,97 +58,92 @@ process FASTATOTWOBIT {
 }
 
 process LASTAL {
-    maxForks 32
-    publishDir "${params.output}/${nam}/lastal/", mode: 'copy'
+    publishDir "${params.output}/${runID}/lastal/", mode: 'copy'
 
-    // Each job gets one reference and one query file
     input:
-        tuple val(nam), path(ref_file), path(query_file), val(distance)
+        tuple val(runID), val(distance), path(refContigFa), path(refContig2bit), path(queryContigFa), path(queryContig2bit)
 
     output:
-        tuple val(nam), path("*.maf", arity: '1'), val(distance)
-        tuple val(nam), path("*.psl", arity: '1'), val(distance)
+        tuple val(runID), val(distance), path(refContigFa), path(refContig2bit), path(queryContigFa), path(queryContig2bit), path("*.maf", arity: '1')
+        tuple val(runID), val(distance), path(refContigFa), path(refContig2bit), path(queryContigFa), path(queryContig2bit), path("*.psl", arity: '1')
 
     script:
         """
-        lastal.R ${ref_file} ${query_file} ${params.output}/${nam}/lastal/ ${distance}
+        lastal.R ${refContigFa} ${queryContigFa} ${params.output}/${runID}/lastal/ ${distance}
         """
     stub:
         """
-        touch ${ref_file.baseName}_vs_${query_file.baseName}.psl
-        touch ${ref_file.baseName}_vs_${query_file.baseName}.maf
+        touch ${refContigFa.baseName}.${queryContigFa.baseName}.psl
+        touch ${refContigFa.baseName}.${queryContigFa.baseName}.maf
         """
 }
 
 process CHAIN {
-    maxForks 16
-    publishDir "${params.output}/${nam[0]}/all_chain/", mode: 'copy'
+    publishDir "${params.output}/${runID}/chain/", mode: 'copy'
 
     input:
-        tuple val(nam), path(psl_file), path(ref2bit_file), path(query2bit_file)
+        tuple val(runID), val(distance), path(refContigFa), path(refContig2bit), path(queryContigFa), path(queryContig2bit), path(psl_file)
 
     output:
-        tuple val(nam), path(ref2bit_file), path(query2bit_file), path("*.all.chain")
+        tuple val(runID), val(distance), path(refContigFa), path(refContig2bit), path(queryContigFa), path(queryContig2bit), path("*.all.chain")
 
     script:
         """
-        chaining.R ${psl_file} ${ref2bit_file} ${query2bit_file} ${nam[3]}
+        chaining.R ${psl_file} ${refContig2bit} ${queryContig2bit} ${distance}
         """
     stub:
         """
-        touch ${ref2bit_file.baseName}_${query2bit_file.baseName}.all.chain
+        touch ${refContig2bit.baseName}_${queryContig2bit.baseName}.all.chain
         """
 }
 
 process NETTING {
-    maxForks 16
-    publishDir "${params.output}/${nam[0]}/net/", mode: 'copy'
+    publishDir "${params.output}/${runID}/netting/", mode: 'copy'
 
     input:
-        tuple val(nam), path(ref2bit_file), path(query2bit_file), path(chain_file)
+        tuple val(runID), val(distance), path(refContigFa), path(refContig2bit), path(queryContigFa), path(queryContig2bit), path(chain_file)
         
 
     output:
-        tuple val(nam), path(ref2bit_file), path(query2bit_file), path("*.all.pre.chain"), path("*.noClass.net")
+        tuple val(runID), val(distance), path(refContigFa), path(refContig2bit), path(queryContigFa), path(queryContig2bit), path(chain_file), path("*.all.pre.chain"), path("*.noClass.net")
 
 
     script:
         """
-        netting.R ${chain_file} ${ref2bit_file} ${query2bit_file}
+        netting.R ${chain_file} ${refContig2bit} ${queryContig2bit}
         """
     stub:
         """
-        touch ${ref2bit_file.baseName}_${query2bit_file.baseName}.all.pre.chain
-        touch ${ref2bit_file.baseName}_${query2bit_file.baseName}.noClass.net
+        touch ${refContig2bit.baseName}_${queryContig2bit.baseName}.all.pre.chain
+        touch ${refContig2bit.baseName}_${queryContig2bit.baseName}.noClass.net
         """
 }
 
 process AXTNET {
-    maxForks 16
-    publishDir "${params.output}/${nam[0]}/axt/", mode: 'copy'
+    publishDir "${params.output}/${runID}/axt/", mode: 'copy'
 
     input:
-        tuple val(nam), path(ref2bit_file), path(query2bit_file), path(pre_chain_file), path(net_syntenic_file)
+        tuple val(runID), val(distance), path(refContigFa), path(refContig2bit), path(queryContigFa), path(queryContig2bit), path(chain_file), path(pre_chain_file), path(net_syntenic_file)
 
     output:
-        tuple val(nam), path(ref2bit_file), path(query2bit_file), path("*.net.axt")
+        tuple val(runID), val(distance), path(refContigFa), path(refContig2bit), path(queryContigFa), path(queryContig2bit), path("*.net.axt")
 
     script:
         """
-        axtNet.R ${net_syntenic_file} ${pre_chain_file} ${ref2bit_file} ${query2bit_file} 
+        axtNet.R ${net_syntenic_file} ${pre_chain_file} ${refContig2bit} ${queryContig2bit} 
         """
     stub:
         """
-        touch ${ref2bit_file.baseName}_${query2bit_file.baseName}.net.axt
+        touch ${refContig2bit.baseName}_${queryContig2bit.baseName}.net.axt
         """
 }
 
 process BIG2BIT {
     errorStrategy 'ignore'
-    publishDir "${params.output}/${nam}/merged/", mode: 'copy'
+    publishDir "${params.output}/shared/${faPath.baseName}/2bit/", mode: 'copy'
 
     input:
-        tuple val(nam), val(id), path(input_fasta), val(distance)
+        tuple path(faPath), path(input_fasta)
 
     output:
         path "*.2bit"
@@ -175,12 +159,10 @@ process BIG2BIT {
 }
 
 process AXTMERGE {
-    maxForks 16
-    publishDir "${params.output}/${nam}/merged/", mode: 'copy'
+    publishDir "${params.output}/${runID}/merged/", mode: 'copy'
 
     input:
-        tuple val(rID), path(axt_files)
-        tuple val(nam), path(ref_filtered_fa_file), path(query_filtered_fa_file)
+        tuple val(runID), path(axtFiles)
 
     output:
         path "*.merged.net.axt"
@@ -189,181 +171,133 @@ process AXTMERGE {
         """
         mkdir axt
         mv *.axt axt
-        axtMerge ./axt ${ref_filtered_fa_file.baseName}_vs_${query_filtered_fa_file.baseName}.merged.net.axt
+        axtMerge ./axt ${runID}.merged.net.axt
         """
     stub:
         """
-        touch ${ref_filtered_fa_file.baseName}_vs_${query_filtered_fa_file.baseName}.merged.net.axt
+        touch ${runID}.merged.net.axt
         """
 }
 
-
+//////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////
 
 workflow {
 
-    def header = ['run_ID','ref_path', 'query_path', 'ref_regex', 'query_regex', 'distance']
+    // Load samplesheet as channel
+    def header = ['runID','ref_path', 'query_path', 'ref_regex', 'query_regex', 'distance']
     samplesheet_ch = Channel.fromPath(params.samplesheet)
         .splitCsv(header: true)
         .map { row -> header.collect { row[it] } }
-
     //samplesheet_ch.view()
 
-    fasta_files_ch = samplesheet_ch.flatMap { row ->
-        [
-            tuple(row[0], "r", row[1], row[3], row[5]),
-            tuple(row[0], "q", row[2], row[4], row[5])
-        ]
+    // Make channel for FILTERFA process with structure [path_to_genome]
+    // To do this first separate samplesheet_ch into ref_path_ch
+    ref_path_ch = samplesheet_ch.map { runID, ref_path, query_path, ref_regex, query_regex, distance -> 
+        [ref_path, ref_regex]
     }
-    //fasta_files_ch.view()
-    
+    // Do the same for query_path_ch
+    query_path_ch = samplesheet_ch.map { runID, ref_path, query_path, ref_regex, query_regex, distance -> 
+        [query_path, query_regex]
+    }
+    // Mix both channels and again keep only unique values
+    ref_query_path_ch = ref_path_ch.mix(query_path_ch).unique()
+    //ref_query_path_ch.view()
+
     // Run FILTERFA and save the output
-    FILTERFA(fasta_files_ch).set { filtered_fa_ch }
-    //filtered_fa_ch.view()
+    FILTERFA(ref_query_path_ch).set { filterfa_ch }
+    //filterfa_ch.view()
 
     // Run SPLITSEQ and save the output
-    SPLITSEQ(filtered_fa_ch).set { splitseq_dir_ch }
-
-    //splitseq_dir_ch.view()
-
-    // Modify splitseq_dir_ch so it contains files instead of directories
-    splitseq_dir_ch
-        .flatMap { id, nam, dir, distance -> 
-            // List all files within the directory.
-            def files = file(dir).listFiles()
-            // For each file, create a new tuple [id, file]
-            files.collect { file -> [ id, nam ,file, distance ] }
-        }
-        .set { splitseq_ch }
+    SPLITSEQ(filterfa_ch).set { splitseq_ch }
     //splitseq_ch.view()
 
-    combined_fa_ch = splitseq_ch
-        .groupTuple()
-        .flatMap { grouped -> 
-            def runName = grouped[0]
-            def ids    = grouped[1]
-            def files   = grouped[2]
-            def dists   = grouped[3]
-
-            def items = []
-            for( int i = 0; i < ids.size(); i++ ) {
-                items << [ ids[i], files[i], dists[i] ]
-            }
-
-            def refItems   = items.findAll { it[0] == 'r' }
-            def queryItems = items.findAll { it[0] == 'q' }
-
-            def pairs = []
-            for( ref in refItems ) {
-                for( query in queryItems ) {
-                    // Each pair is: [ runName, ref_file, query_file ]
-                    pairs << tuple(runName, ref[1], query[1], ref[2])
-                }
-            }
-            return pairs
+    // Modify splitseq_ch so it emits files instead of directories
+    splitseq_ch
+        .flatMap { input_fasta, split_directory ->  
+            def files = file(split_directory).listFiles()
+            files.collect { file -> [input_fasta, split_directory, file] }
         }
-    //combined_fa_ch.view()
+        .set { splitseq_files_ch }
+    //splitseq_files_ch.view()
 
-    // Run LASTAL and save the output
-    (maf_ch, psl_ch) = LASTAL(combined_fa_ch)
-    
     // Run FASTATOTWOBIT and save the output
-    FASTATOTWOBIT(splitseq_ch).set { twobit_files_ch }
-    //twobit_files_ch.view()
-    // Separate twobit_files_ch into reference and query channels
-    ref2b_ch = twobit_files_ch.filter { it[1] == 'r' }
-    query2b_ch = twobit_files_ch.filter { it[1] == 'q' }
-    // Combine reference and query channels as a cartesian product using .combine
-    ref2b_ch.combine(query2b_ch).set { combined_2b_ch }
-    // Filter combined channel to keep only combinations of the same run
-    combined_filtered_2b_ch = combined_2b_ch.filter { it[0] == it[4]}
-    //combined_filtered_2b_ch.view()
+    FASTATOTWOBIT(splitseq_files_ch).set { fastatotwobit_ch }
+    //fastatotwobit_ch.view()
 
-    // Edit 2bit channel to follow structure [[ref_basename, q_basename], path/to/ref.2bit, path/to/query.2bit]
-    combined_filtered_2b_ch.map { r_nam, r_id, ref_file, ref_distance, q_nam, q_id, query_file, query_distance ->
-        // Get the base name of each file (removing the .2bit extension)
-        def ref_basename = ref_file.getName().replaceFirst(/\.2bit$/, '')
-        def query_basename = query_file.getName().replaceFirst(/\.2bit$/, '')
-        // Return a tuple with the requested structure:
-        // [[reference_file_basename, query_file_basename], path/to/reference.2bit, path/to/query.2bit]
-        return [[r_nam, ref_basename, query_basename, ref_distance], ref_file, query_file]
+    // Create sample info channels keyed by baseName from the original FASTA paths
+    sample_info_ref_ch = samplesheet_ch.map { runID, ref_path, query_path, ref_regex, query_regex, distance -> 
+        // Key by baseName from ref_path
+        tuple( file(ref_path).baseName, [ runID, ref_path, query_path, distance ] )
     }
-    .set { combined_2b_sync_ch }
-    //combined_2b_sync_ch.view()
+    //sample_info_ref_ch.view()
 
-    //psl_ch.view()
-    // reformat psl channel
-    psl_ch
-        .map { nam, file, distance ->
-            // Get the file name without the '.psl' extension
-            def baseName = file.getName().replaceFirst(/\.psl$/, '')
-            // Split the file name by the underscore to separate the two parts
-            def parts = baseName.split('_vs_')
-            // First part is the ref_basename, second part is the query_basename
-            def ref_basename = parts[0]
-            def q_basename   = parts[1]
-            // Return a tuple with the structure: [[ref_basename, q_basename], file_path]
-            return [[nam, ref_basename, q_basename, distance], file]
+    sample_info_query_ch = samplesheet_ch.map { runID, ref_path, query_path, ref_regex, query_regex, distance -> 
+        // Key by baseName from query_path
+        tuple( file(query_path).baseName, [ runID, ref_path, query_path, distance ] )
+    }
+    //sample_info_query_ch.view()
+
+    // Key the FASTATOTWOBIT outputs (which are for both ref and query) by the baseName of the input fasta.
+    fastatotwobit_kv_ch = fastatotwobit_ch.map { input_fasta, split_fasta, twobit -> 
+        tuple( file(input_fasta).baseName, [ split_fasta, twobit ] )
+    }
+    //fastatotwobit_kv_ch.view()
+
+    // Now combine sample info and FASTATOTWOBIT for reference contigs.
+    // This yields individual records with the desired structure: [runID, distance, ref_contig, ref_twobit]
+    ref_contig_ch = sample_info_ref_ch.combine(fastatotwobit_kv_ch, by: 0)
+        .map { key, sample, data ->
+            def runID    = sample[0]
+            def distance = sample[3]
+            def contig   = data[0]   // reference contig file
+            def twobit   = data[1]   // reference contig 2bit
+            [ runID, distance, contig, twobit ]
         }
-        .set { psl_sync_ch }
-    //psl_sync_ch.view()
+    //ref_contig_ch.view()
 
-    // combine both edited channels psl_sync_ch and combined_2b_sync_ch into channel psl_2b_ch with structure
-    // [ [ref_basename, query_basename] , path/to/file.psl , path/to/ref.2bit , path/to/query.2bit ]
-    psl_2b_ch = psl_sync_ch.join(combined_2b_sync_ch)
-    .map { t ->
-        // 't' is a list: [key, psl_file, ref_file, query_file]
-        def (key, psl_file, ref_file, query_file) = t
-        // Return the merged tuple with the desired structure:
-        [ key, psl_file, ref_file, query_file ]
-    }
-    //psl_2b_ch.view()
+    // Do the same for query contigs
+    query_contig_ch = sample_info_query_ch.combine(fastatotwobit_kv_ch, by: 0)
+        .map { key, sample, data ->
+            def runID    = sample[0]
+            def distance = sample[3]
+            def contig   = data[0]   // query contig file
+            def twobit   = data[1]   // query contig 2bit
+            [ runID, distance, contig, twobit ]
+        }
+    //query_contig_ch.view()
+
+    // Combine ref_contig_ch and query_contig_ch as a cartesian product into lastal_ch
+    lastal_ch = ref_contig_ch.combine(query_contig_ch, by: 0)
+        .map { runID, refDistance, refContigFa, refContig2bit, queryDistance, queryContigFa, queryContig2bit -> 
+            [ runID, refDistance, refContigFa, refContig2bit, queryContigFa, queryContig2bit ]
+        }
+    
+    // Run LASTAL and save the output
+    (maf_ch, psl_ch) = LASTAL(lastal_ch)
+    //psl_ch.view()
 
     // Run CHAIN and save the output
-    CHAIN(psl_2b_ch).set { chain_ch }
+    CHAIN(psl_ch).set { chain_ch }
+    //chain_ch.view()
 
     // Run NETTING and save the output
     NETTING(chain_ch).set { netting_ch }
+    //netting_ch.view()
 
     // Run AXTNET and save the output
-    AXTNET(netting_ch).set { axt_net_ch }
+    AXTNET(netting_ch).set{ axtnet_ch }
+    //axtnet_ch.view()
 
     // Run BIG2BIT and save the output
-    BIG2BIT(filtered_fa_ch)
+    BIG2BIT(filterfa_ch).set { big2bit_ch }
+    //big2bit_ch.view()
 
-    //axt_net_ch.view()
-    axt_net_ch
-    // Map each tuple: extract the run ID from the nested list (at position 0) and rebuild the tuple
-    .map { tuple ->
-        def runId = tuple[0][0]    // extract run identifier from the first element (a list)
-        return [ runId ] + tuple[1..-1]   // new tuple with runId as the first element
-    }
-    .groupTuple(by: 0)
-    .set { axt_flat_ch }
-
-    axt_flat_ch
-        .map { nam, r2b, q2b, axt -> 
-            [ nam, axt ]
-        }
-        .set { nam_axt_ch }
-    nam_axt_ch.view()
-    //axt_flat_ch.view() // now tuple should have structure [run_id, [ref_paths_to_2bit], [query_paths_to_2bit], [paths_to_axt*]] *directory of interest
-
-    // Now get filtered reference and query into same channel
-    //filtered_fa_ch.view()
-
-    filtered_fa_files_ch = filtered_fa_ch
+    axtmerge_ch = axtnet_ch
+        .map { runID, distance, refContigFa, refContig2bit, queryContigFa, queryContig2bit, axt -> [runID, axt] }
         .groupTuple(by: 0, size: 2)
-        .map { runId, types, files, _ ->
-            // Find the index corresponding to type 'r' (reference) and 'q' (query)
-            def refIndex = types.findIndexOf { it == 'r' }
-            def queryIndex = types.findIndexOf { it == 'q' }
-            def refFile = files[refIndex]
-            def queryFile = files[queryIndex]
-            // Return the new tuple: [run_id, ref_filtered_fa, query_filtered_fa]
-            [ runId, refFile, queryFile ]
-    }
-    //filtered_fa_files_ch.view()
-    //axt_flat_ch.view()
-    // Run AXTMERGE and save the output
-    AXTMERGE(nam_axt_ch, filtered_fa_files_ch)
+
+    // Run AXTMERGE
+    AXTMERGE(axtmerge_ch)
 }
