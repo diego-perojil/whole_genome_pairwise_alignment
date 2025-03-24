@@ -57,6 +57,28 @@ process FASTATOTWOBIT {
         """
 }
 
+process LASTDB {
+    input:
+        tuple val(runID), val(distance), path(reference_assembly), path(reference_2bit)
+
+    output:
+        tuple val(runID), val(distance), path("*db/*.fa"), path(reference_2bit)
+
+    script:
+        """
+        mkdir -p db
+        mv *.fa db/
+        lastdb.R db/${reference_assembly}
+        """
+
+    stub:
+        """
+        mkdir -p db
+        mv *.fa db/
+        touch db/.prf db/.suf db/.des db/.amb
+        """
+}
+
 process LASTAL {
     publishDir "${params.output}/${runID}/lastal/", mode: 'copy'
 
@@ -255,7 +277,7 @@ workflow {
             def twobit   = data[1]   // reference contig 2bit
             [ runID, distance, contig, twobit ]
         }
-    //ref_contig_ch.view()
+    ref_contig_ch.view()
 
     // Do the same for query contigs
     query_contig_ch = sample_info_query_ch.combine(fastatotwobit_kv_ch, by: 0)
@@ -268,11 +290,15 @@ workflow {
         }
     //query_contig_ch.view()
 
+    // Run LASTDB and save the output
+    LASTDB(ref_contig_ch).set { ref_contig_db_ch }
+
     // Combine ref_contig_ch and query_contig_ch as a cartesian product into lastal_ch
-    lastal_ch = ref_contig_ch.combine(query_contig_ch, by: 0)
+    lastal_ch = ref_contig_db_ch.combine(query_contig_ch, by: 0)
         .map { runID, refDistance, refContigFa, refContig2bit, queryDistance, queryContigFa, queryContig2bit -> 
             [ runID, refDistance, refContigFa, refContig2bit, queryContigFa, queryContig2bit ]
         }
+    //lastal_ch.view()
     
     // Run LASTAL and save the output
     (maf_ch, psl_ch) = LASTAL(lastal_ch)
