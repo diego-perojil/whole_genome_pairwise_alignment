@@ -30,6 +30,7 @@ process SPLITSEQ {
         """
         mkdir -p split
         faSplit byname ${filtered_fasta} ./split/
+        for file in split/*.fa; do mv "\$file" split/${input_fasta.baseName}_`basename \$file`; done
         """
     stub:
         """
@@ -62,20 +63,18 @@ process LASTDB {
         tuple val(runID), val(distance), path(reference_assembly), path(reference_2bit)
 
     output:
-        tuple val(runID), val(distance), path("*db/*.fa"), path(reference_2bit)
+        tuple val(runID), val(distance), path("*.bck"), path("*.des"), path("*.prj"), path("*.sds"), path("*.ssp"), path("*.suf"), path("*.tis"), path(reference_assembly), path(reference_2bit)
 
     script:
         """
-        mkdir -p db
-        mv *.fa db/
-        lastdb.R db/${reference_assembly}
+        lastdb.R ${reference_assembly}
         """
 
     stub:
         """
         mkdir -p db
         mv *.fa db/
-        touch db/.prf db/.suf db/.des db/.amb
+        touch db/${reference_assembly.baseName}.{bck,des,prj,sds,ssp,suf,tis}
         """
 }
 
@@ -83,22 +82,24 @@ process LASTAL {
     publishDir "${params.output}/${runID}/lastal/", mode: 'copy'
 
     input:
-        tuple val(runID), val(distance), path(refContigFa), path(refContig2bit), path(queryContigFa), path(queryContig2bit)
+        tuple val(runID), val(distance), path(bck), path(des), path(prj), path(sds), path(ssp), path(suf), path(tis), path(fa), path(refContig2bit), path(queryContigFa), path(queryContig2bit)
 
     output:
-        tuple val(runID), val(distance), path(refContigFa), path(refContig2bit), path(queryContigFa), path(queryContig2bit), path("*.maf", arity: '1')
-        tuple val(runID), val(distance), path(refContigFa), path(refContig2bit), path(queryContigFa), path(queryContig2bit), path("*.psl", arity: '1')
+        tuple val(runID), val(distance), path(fa), path(refContig2bit), path(queryContigFa), path(queryContig2bit), path("*.maf", arity: '1')
+        tuple val(runID), val(distance), path(fa), path(refContig2bit), path(queryContigFa), path(queryContig2bit), path("*.psl", arity: '1')
 
     script:
         """
-        lastal.R ${refContigFa} ${queryContigFa} ${params.output}/${runID}/lastal/ ${distance}
+        lastal.R ${fa} ${queryContigFa} ${distance}
         """
+
     stub:
         """
         touch ${refContigFa.baseName}.${queryContigFa.baseName}.psl
         touch ${refContigFa.baseName}.${queryContigFa.baseName}.maf
         """
 }
+
 
 process CHAIN {
     publishDir "${params.output}/${runID}/chain/", mode: 'copy'
@@ -277,7 +278,7 @@ workflow {
             def twobit   = data[1]   // reference contig 2bit
             [ runID, distance, contig, twobit ]
         }
-    ref_contig_ch.view()
+    //ref_contig_ch.view()
 
     // Do the same for query contigs
     query_contig_ch = sample_info_query_ch.combine(fastatotwobit_kv_ch, by: 0)
@@ -292,11 +293,12 @@ workflow {
 
     // Run LASTDB and save the output
     LASTDB(ref_contig_ch).set { ref_contig_db_ch }
+    //ref_contig_db_ch.view()
 
     // Combine ref_contig_ch and query_contig_ch as a cartesian product into lastal_ch
     lastal_ch = ref_contig_db_ch.combine(query_contig_ch, by: 0)
-        .map { runID, refDistance, refContigFa, refContig2bit, queryDistance, queryContigFa, queryContig2bit -> 
-            [ runID, refDistance, refContigFa, refContig2bit, queryContigFa, queryContig2bit ]
+        .map { runID, refDistance, bck, des, prj, sds, ssp, suf, tis, fa, refContig2bit, queryDistance, queryContigFa, queryContig2bit -> 
+            [ runID, refDistance, bck, des, prj, sds, ssp, suf, tis, fa, refContig2bit, queryContigFa, queryContig2bit ]
         }
     //lastal_ch.view()
     

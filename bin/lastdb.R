@@ -14,8 +14,8 @@ assembly_fa <- args[1]
 library(CNEr)
 
 # Paths
-reference_root <- tools::file_path_sans_ext(basename(assembly_fa))
-lastdb_path <- reference_root
+reference_root <- tools::file_path_sans_ext(basename(assembly_fa)) # Take file name without extension or path
+lastdb_name <- reference_root
 
 # Build the lastdb index
-system2(command = "lastdb", args= c("-c","-P 4",  lastdb_path, assembly_fa))
+system2(command = "lastdb", args= c("-c","-P 4",  lastdb_name, assembly_fa))

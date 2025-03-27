@@ -1,3 +1,3 @@
 runID,ref_path,query_path,ref_regex,query_regex,distance
-S_cerevisiaeS_eubayanus,/mnt/orca/diego/Nextflow_WPA.dev/whole_genome_pairwise_alignment/data/S_cerevisiae.fa,/mnt/orca/diego/Nextflow_WPA.dev/whole_genome_pairwise_alignment/data/S_eubayanus.fa,chromosome,chromosome,near
-S_eubayanusS_cerevisiae,/mnt/orca/diego/Nextflow_WPA.dev/whole_genome_pairwise_alignment/data/S_eubayanus.fa,/mnt/orca/diego/Nextflow_WPA.dev/whole_genome_pairwise_alignment/data/S_cerevisiae.fa,chromosome,chromosome,near
+S_cerevisiaeS_eubayanus,/mnt/orca/diego/wgpa/whole_genome_pairwise_alignment/data/S_cerevisiae.fa,/mnt/orca/diego/wgpa/whole_genome_pairwise_alignment/data/S_eubayanus.fa,chromosome,chromosome,near
+S_eubayanusS_cerevisiae,/mnt/orca/diego/wgpa/whole_genome_pairwise_alignment/data/S_eubayanus.fa,/mnt/orca/diego/wgpa/whole_genome_pairwise_alignment/data/S_cerevisiae.fa,chromosome,chromosome,near
