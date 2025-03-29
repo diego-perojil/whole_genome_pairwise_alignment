@@ -39,24 +39,99 @@ process SPLITSEQ {
         """
 }
 
-process FASTATOTWOBIT {
+process SMART2BIT {
     publishDir "${params.output}/shared/${input_fasta.baseName}/2bit/split", mode: 'copy'
-
+    
+    // Input: original FASTA and the directory of split FASTA files (from SPLITSEQ)
     input:
-        tuple path(input_fasta), path(split_dir), path(split_fasta)
-
+        tuple path(input_fasta), path(split_dir)
+    
+    // Output: original FASTA and a directory containing finalized groups (each with a .fa and a .2bit)
     output:
-        tuple path(input_fasta), path(split_fasta), path("*.2bit")
-
+        tuple path(input_fasta), path("result_2bit")
+    
     script:
-        """
-        faToTwoBit ${split_fasta} ${split_fasta.baseName}.2bit
-        """
+    """
+    #!/bin/bash
+    set -euo pipefail
+
+    # Get the base name (using Nextflow substitution)
+    base="${input_fasta.baseName}"
+
+    # List all .fa files in the split directory (sorted alphabetically)
+    files=(\$(ls ${split_dir}/*.fa | sort))
+    if [ \${#files[@]} -eq 0 ]; then
+      echo "No split FASTA files found in ${split_dir}" >&2
+      exit 1
+    fi
+
+    # Create an output directory for finalized groups
+    mkdir -p result_2bit
+
+    # Initialize group counter and set group name as "base.counter" (e.g. S_cerevisiae.1)
+    group_count=1
+    group_name="\${base}.\${group_count}"
+
+    # Copy the first split file as the initial group.
+    cp "\${files[0]}" group.fa
+
+    # Loop over the remaining split files
+    for ((i=1; i<\${#files[@]}; i++)); do
+      current_file="\${files[\$i]}"
+      
+      # Concatenate current group with the next file into a temporary file
+      cat group.fa "\$current_file" > group_new.fa
+      
+      # Test conversion on the concatenated FASTA (using a temporary 2bit file)
+      if faToTwoBit group_new.fa tmp.2bit; then
+        # Conversion succeeded; update the current group with the concatenated file.
+        mv group_new.fa group.fa
+        rm -f tmp.2bit
+      else
+        # Conversion failed; finalize the current group.
+        faToTwoBit group.fa "\${group_name}.2bit"
+        if [ -f "\${group_name}.2bit" ]; then
+          mv group.fa result_2bit/"\${group_name}.fa"
+          mv "\${group_name}.2bit" result_2bit/
+        else
+          echo "Conversion failed for group \${group_name}" >&2
+          rm -f group.fa
+          exit 1
+        fi
+        # Increment the counter and start a new group with the current file.
+        group_count=\$((group_count+1))
+        group_name="\${base}.\${group_count}"
+        cp "\$current_file" group.fa
+        rm -f group_new.fa
+      fi
+    done
+
+    # Finalize the last group.
+    faToTwoBit group.fa "\${group_name}.2bit"
+    if [ -f "\${group_name}.2bit" ]; then
+      mv group.fa result_2bit/"\${group_name}.fa"
+      mv "\${group_name}.2bit" result_2bit/
+    else
+      echo "Final conversion failed for group \${group_name}" >&2
+      rm -f group.fa
+      exit 1
+    fi
+
+    # Clean up temporary files.
+    rm -f group.fa group_new.fa tmp.2bit
+
+    # List produced files for logging.
+    ls result_2bit
+    """
+    
     stub:
-        """
-        touch ${split_fasta.baseName}.2bit
-        """
+    """
+    mkdir -p result_2bit
+    touch result_2bit/dummy.fa
+    touch result_2bit/dummy.2bit
+    """
 }
+
 
 process LASTDB {
     input:
@@ -236,18 +311,22 @@ workflow {
     SPLITSEQ(filterfa_ch).set { splitseq_ch }
     //splitseq_ch.view()
 
-    // Modify splitseq_ch so it emits files instead of directories
-    splitseq_ch
-        .flatMap { input_fasta, split_directory ->  
-            def files = file(split_directory).listFiles()
-            files.collect { file -> [input_fasta, split_directory, file] }
-        }
-        .set { splitseq_files_ch }
-    //splitseq_files_ch.view()
-
     // Run FASTATOTWOBIT and save the output
-    FASTATOTWOBIT(splitseq_files_ch).set { fastatotwobit_ch }
+    SMART2BIT(splitseq_ch).set { smart2bit_ch }
     //fastatotwobit_ch.view()
+
+    fastatotwobit_ch = smart2bit_ch.flatMap { original, resultDir ->
+    // Group files by basename (without extension) so that each group has a .fa and a .2bit.
+        def groups = file(resultDir).listFiles()
+                        .findAll { it.name.endsWith('.fa') || it.name.endsWith('.2bit') }
+                        .groupBy { it.name.tokenize('.')[0] }
+        groups.collect { groupName, files ->
+            def concatFa = files.find { it.name.endsWith('.fa') }
+            def twoBit    = files.find { it.name.endsWith('.2bit') }
+            [ original, concatFa, twoBit ]
+        }
+    }
+    fastatotwobit_ch.view()
 
     // Create sample info channels keyed by baseName from the original FASTA paths
     sample_info_ref_ch = samplesheet_ch.map { runID, ref_path, query_path, ref_regex, query_regex, distance -> 
