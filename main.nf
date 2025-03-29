@@ -1,42 +1,43 @@
-process FILTERFA {
-    publishDir "${params.output}/shared/${input_fasta.baseName}/filtered", mode: 'copy'
-
+process FILTERSPLIT {
+    publishDir "${params.output}/shared/${input_fasta.baseName}/filtered_split", mode: 'copy'
+    
+    // Input: original FASTA and regex to filter contig names
     input:
         tuple path(input_fasta), val(regex_to_use)
     
-    output:
-        tuple path(input_fasta), path("*filtered.fa")
-
-    script:
-        """
-        awk -v pattern="${regex_to_use}" '/^>/{flag = (\$0 ~ pattern)} flag' "${input_fasta}" > "${input_fasta.baseName}_filtered.fa"
-        """
-    stub:
-        """
-        touch "${input_fasta.baseName}_filtered.fa"
-        """
-}
-
-process SPLITSEQ {
-    publishDir "${params.output}/shared/${input_fasta.baseName}", mode: 'copy'
-
-    input:
-        tuple path(input_fasta), path(filtered_fasta)
-
+    // Output: original FASTA and the split directory containing only files that match the regex
     output:
         tuple path(input_fasta), path("*split")
-
+    
     script:
-        """
-        mkdir -p split
-        faSplit byname ${filtered_fasta} ./split/
-        for file in split/*.fa; do mv "\$file" split/${input_fasta.baseName}_`basename \$file`; done
-        """
+    """
+    # Create a directory for split files
+    mkdir -p split
+    
+    # Split the original FASTA by contig using faSplit
+    faSplit byname ${input_fasta} ./split/
+    
+    # Rename each file to include the original FASTA base name for consistency,
+    # then filter based on the contig name extracted from the header.
+    for file in split/*.fa; do
+         mv "\$file" split/${input_fasta.baseName}_`basename \$file`
+         # Extract the contig name: get the first line, remove leading '>', then take first token.
+         contig=\$(head -n 1 "\$newfile" | sed 's/^>//' | cut -d ' ' -f1)
+         # If the contig name does not match the regex, delete the file.
+         if ! echo "\$contig" | grep -E "${regex_to_use}" > /dev/null; then
+             rm -f "\$file"
+         fi
+    done
+    
+    # List remaining files for logging.
+    ls -1 split
+    """
+    
     stub:
-        """
-        mkdir -p split
-        touch ./split/${filtered_fasta.baseName}-f1.fa ./split/${filtered_fasta.baseName}-f2.fa ./split/${filtered_fasta.baseName}-f3.fa ./split/${filtered_fasta.baseName}-f4.fa
-        """
+    """
+    mkdir -p split
+    touch split/dummy.fa
+    """
 }
 
 process SMART2BIT {
@@ -236,26 +237,6 @@ process AXTNET {
         """
 }
 
-process BIG2BIT {
-    errorStrategy 'ignore'
-    publishDir "${params.output}/shared/${faPath.baseName}/2bit/", mode: 'copy'
-
-    input:
-        tuple path(faPath), path(input_fasta)
-
-    output:
-        path "*.2bit"
-    
-    script:
-        """
-        faToTwoBit ${input_fasta} ${input_fasta.baseName}.2bit
-        """
-    stub:
-        """
-        touch ${input_fasta.baseName}.2bit
-        """
-}
-
 process AXTMERGE {
     publishDir "${params.output}/${runID}/merged/", mode: 'copy'
 
@@ -303,13 +284,9 @@ workflow {
     ref_query_path_ch = ref_path_ch.mix(query_path_ch).unique()
     //ref_query_path_ch.view()
 
-    // Run FILTERFA and save the output
-    FILTERFA(ref_query_path_ch).set { filterfa_ch }
-    //filterfa_ch.view()
-
-    // Run SPLITSEQ and save the output
-    SPLITSEQ(filterfa_ch).set { splitseq_ch }
-    //splitseq_ch.view()
+    // Run FILTERSPLIT and save the output
+    FILTERSPLIT(ref_query_path_ch).set { splitseq_ch }
+    splitseq_ch.view()
 
     // Run FASTATOTWOBIT and save the output
     SMART2BIT(splitseq_ch).set { smart2bit_ch }
@@ -326,7 +303,7 @@ workflow {
             [ original, concatFa, twoBit ]
         }
     }
-    fastatotwobit_ch.view()
+    //fastatotwobit_ch.view()
 
     // Create sample info channels keyed by baseName from the original FASTA paths
     sample_info_ref_ch = samplesheet_ch.map { runID, ref_path, query_path, ref_regex, query_regex, distance -> 
@@ -396,10 +373,6 @@ workflow {
     // Run AXTNET and save the output
     AXTNET(netting_ch).set{ axtnet_ch }
     //axtnet_ch.view()
-
-    // Run BIG2BIT and save the output
-    BIG2BIT(filterfa_ch).set { big2bit_ch }
-    //big2bit_ch.view()
 
     axtmerge_ch = axtnet_ch
         .map { runID, distance, refContigFa, refContig2bit, queryContigFa, queryContig2bit, axt -> [runID, axt] }
