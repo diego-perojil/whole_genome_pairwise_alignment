@@ -1,3 +1,2 @@
 runID,ref_path,query_path,ref_regex,query_regex,distance
-S_cerevisiaeS_eubayanus,/mnt/orca/diego/wgpa/whole_genome_pairwise_alignment/data/S_cerevisiae.fa,/mnt/orca/diego/wgpa/whole_genome_pairwise_alignment/data/S_eubayanus.fa,chromosome,chromosome,near
-S_eubayanusS_cerevisiae,/mnt/orca/diego/wgpa/whole_genome_pairwise_alignment/data/S_eubayanus.fa,/mnt/orca/diego/wgpa/whole_genome_pairwise_alignment/data/S_cerevisiae.fa,chromosome,chromosome,near
+humanAxolotl,/mnt/orca/diego/genomes/GCF_000001405.40_GRCh38.p14_genomic.fna,/mnt/orca/diego/genomes/GCF_040938575.1_UKY_AmexF1_1_genomic.fna,NC_00,NC_09,far

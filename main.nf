@@ -1,35 +1,33 @@
 process FILTERSPLIT {
     publishDir "${params.output}/shared/${input_fasta.baseName}/filtered_split", mode: 'copy'
     
-    // Input: original FASTA and regex to filter contig names
     input:
         tuple path(input_fasta), val(regex_to_use)
     
-    // Output: original FASTA and the split directory containing only files that match the regex
+    
     output:
         tuple path(input_fasta), path("*split")
     
     script:
     """
-    # Create a directory for split files
     mkdir -p split
-    
-    # Split the original FASTA by contig using faSplit
     faSplit byname ${input_fasta} ./split/
-    
-    # Rename each file to include the original FASTA base name for consistency,
-    # then filter based on the contig name extracted from the header.
-    for file in split/*.fa; do
-         mv "\$file" split/${input_fasta.baseName}_`basename \$file`
-         # Extract the contig name: get the first line, remove leading '>', then take first token.
-         contig=\$(head -n 1 "\$newfile" | sed 's/^>//' | cut -d ' ' -f1)
-         # If the contig name does not match the regex, delete the file.
-         if ! echo "\$contig" | grep -E "${regex_to_use}" > /dev/null; then
-             rm -f "\$file"
-         fi
+
+    for f in split/*.fa; do
+
+        full_header=\$(grep -m1 '^>' "\$f" | sed 's/^>//')
+        
+        # keep only if header matches your regex
+        if echo "\$full_header" | grep -E "${regex_to_use}" >/dev/null; then
+            # extract first token for filename
+            sed -i "1s/.*/>\${full_header}/" "\$f"
+            short=$(echo "\$full_header" | cut -d ' ' -f1)
+            mv "\$f" "split/${input_fasta.baseName}_\${short}.fa"
+        else
+            rm -f "\$f"
+        fi
     done
-    
-    # List remaining files for logging.
+
     ls -1 split
     """
     
@@ -40,6 +38,7 @@ process FILTERSPLIT {
     """
 }
 
+  
 process SMART2BIT {
     publishDir "${params.output}/shared/${input_fasta.baseName}/2bit/split", mode: 'copy'
     
@@ -286,7 +285,7 @@ workflow {
 
     // Run FILTERSPLIT and save the output
     FILTERSPLIT(ref_query_path_ch).set { splitseq_ch }
-    splitseq_ch.view()
+    //splitseq_ch.view()
 
     // Run FASTATOTWOBIT and save the output
     SMART2BIT(splitseq_ch).set { smart2bit_ch }
