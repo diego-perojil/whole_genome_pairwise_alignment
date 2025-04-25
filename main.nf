@@ -21,7 +21,7 @@ process FILTERSPLIT {
         if echo "\$full_header" | grep -E "${regex_to_use}" >/dev/null; then
             # extract first token for filename
             sed -i "1s/.*/>\${full_header}/" "\$f"
-            short=$(echo "\$full_header" | cut -d ' ' -f1)
+            short=\$(echo "\$full_header" | cut -d ' ' -f1)
             mv "\$f" "split/${input_fasta.baseName}_\${short}.fa"
         else
             rm -f "\$f"
@@ -37,7 +37,6 @@ process FILTERSPLIT {
     touch split/dummy.fa
     """
 }
-
   
 process SMART2BIT {
     publishDir "${params.output}/shared/${input_fasta.baseName}/2bit/split", mode: 'copy'
@@ -292,16 +291,18 @@ workflow {
     //fastatotwobit_ch.view()
 
     fastatotwobit_ch = smart2bit_ch.flatMap { original, resultDir ->
-    // Group files by basename (without extension) so that each group has a .fa and a .2bit.
-        def groups = file(resultDir).listFiles()
-                        .findAll { it.name.endsWith('.fa') || it.name.endsWith('.2bit') }
-                        .groupBy { it.name.tokenize('.')[0] }
+        def groups = file(resultDir)
+                    .listFiles()
+                    .findAll { it.name.endsWith('.fa') || it.name.endsWith('.2bit') }
+                    .groupBy { it.baseName }  // use the full basename (e.g. "axolotlGenome.1")
+
         groups.collect { groupName, files ->
             def concatFa = files.find { it.name.endsWith('.fa') }
-            def twoBit    = files.find { it.name.endsWith('.2bit') }
+            def twoBit   = files.find { it.name.endsWith('.2bit') }
             [ original, concatFa, twoBit ]
         }
     }
+
     //fastatotwobit_ch.view()
 
     // Create sample info channels keyed by baseName from the original FASTA paths
