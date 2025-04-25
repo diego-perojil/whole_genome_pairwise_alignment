@@ -23,7 +23,7 @@ query_root <- tools::file_path_sans_ext(basename(query_fa))
 output_maf <- paste0(reference_root, "_", query_root, ".maf")
 lastal(db = reference_root, queryFn = query_fa,
        outputFn = output_maf,
-       distance = dist_val, binary = "lastal", mc.cores = 1L)
+       distance = dist_val, binary = "lastal", mc.cores = 100L) # mc.cores is 100 to make sure lastal uses the maximum possible number of cores, but will only ever use a number of cores = to number of contigs aligned. In the future, use process labels to efficiently manage core usage by lastal
 
 # maf to psl conversion
 output_psl <- paste0(reference_root, "_vs_", query_root, ".psl")
