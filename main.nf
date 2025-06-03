@@ -1,27 +1,33 @@
 process FILTERSPLIT {
     publishDir "${params.output}/shared/${input_fasta.baseName}/filtered_split", mode: 'copy'
-    
+
     input:
         tuple path(input_fasta), val(regex_to_use)
-    
-    
+
     output:
         tuple path(input_fasta), path("*split")
-    
+
     script:
     """
     mkdir -p split
     faSplit byname ${input_fasta} ./split/
 
     for f in split/*.fa; do
-
+        # first-token header that faSplit wrote
         full_header=\$(grep -m1 '^>' "\$f" | sed 's/^>//')
-        
-        # keep only if header matches your regex
-        if echo "\$full_header" | grep -E "${regex_to_use}" >/dev/null; then
-            # extract first token for filename
-            sed -i "1s/.*/>\${full_header}/" "\$f"
-            short=\$(echo "\$full_header" | cut -d ' ' -f1)
+        short=\$(echo "\$full_header" | cut -d ' ' -f1)
+
+        keep=0
+        if [ "${regex_to_use}" = "_" ]; then                     # UCSC mode
+            [[ "\$short" != *_* ]] && keep=1                     # keep if no “_”
+        elif [ "${regex_to_use}" = "ENSEMBL" ]; then             # Ensembl mode
+            [[ "\$short" != *.* ]] && keep=1                     # keep if no “.”
+        else                                                     # default regex
+            echo "\$short" | grep -E "${regex_to_use}" >/dev/null && keep=1
+        fi
+
+        if [ "\$keep" -eq 1 ]; then
+            # (Header is already correct, just rename file)
             mv "\$f" "split/${input_fasta.baseName}_\${short}.fa"
         else
             rm -f "\$f"
@@ -30,13 +36,9 @@ process FILTERSPLIT {
 
     ls -1 split
     """
-    
-    stub:
-    """
-    mkdir -p split
-    touch split/dummy.fa
-    """
 }
+
+
   
 process SMART2BIT {
     publishDir "${params.output}/shared/${input_fasta.baseName}/2bit/split", mode: 'copy'

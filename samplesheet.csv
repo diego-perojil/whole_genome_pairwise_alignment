@@ -1,2 +1,3 @@
 runID,ref_path,query_path,ref_regex,query_regex,distance
-humanAxolotl,/mnt/orca/diego/genomes/GCF_000001405.40_GRCh38.p14_genomic.fna,/mnt/orca/diego/genomes/GCF_040938575.1_UKY_AmexF1_1_genomic.fna,NC_00,NC_09,far
+ensemblUCSC,/mnt/orca/diego/genomes/dog/canFam6.fa,/mnt/orca/diego/genomes/lizard/Anolis_carolinensis.AnoCar2.0v2.dna_sm.toplevel.fa,_,ENSEMBL,far
+ensemblncbi,/mnt/orca/diego/genomes/dog/canFam6.fa,/mnt/orca/diego/genomes/white_shark/GCF_017639515.1.fa,_,NC_05,far
